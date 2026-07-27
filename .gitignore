@@ -1,0 +1,56 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ---- 测试 / 覆盖率 ----
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+
+# ---- 类型检查 / 静态分析 ----
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# ---- 编辑器 / IDE ----
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# ---- 日志 / 临时 ----
+*.log
+logs/
+tmp/
+temp/
+
+# ---- 密钥 ----
+.env
+.env.local
+*.pem
+*.key
+
+# ---- 构建产物 ----
+build/
+dist/
+*.spec
+
+# ---- 缓存 ----
+.cache/
+.mj_cache/

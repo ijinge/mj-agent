@@ -1,0 +1,36 @@
+# mj-agent 默认配置（可被环境变量覆盖）
+app_name: mj-agent
+env: dev
+
+redis:
+  url: redis://127.0.0.1:6379/0
+  max_connections: 32
+  stream_block_ms: 5000
+  stream_read_count: 100
+
+database:
+  url: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/mjagent
+  pool_size: 10
+  echo: false
+
+gateway:
+  host: 0.0.0.0
+  port: 8080
+  sse_keepalive_seconds: 15.0
+  sse_max_idle_seconds: 90.0
+  sse_default_retry_ms: 3000
+
+worker:
+  queue: tasks:default
+  concurrency: 4
+  poll_block_ms: 1000
+  event_flush_interval_ms: 50
+  default_max_iters: 10
+
+llm:
+  provider: openai
+  model: gpt-4o-mini
+  api_key: null
+  base_url: null
+  temperature: 0.2
+  max_tokens: null
