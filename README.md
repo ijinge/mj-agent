@@ -49,12 +49,13 @@
 | --- | --- |
 | `app/gateway`   | FastAPI 路由、SSE 帧、连接管理、XREAD 订阅、断点续传 |
 | `app/worker`    | LangGraph 循环、Agent 状态、事件聚合（token 合并） |
+| `app/worker/mcp`| MCP 客户端、工具注册、MCP↔LangChain 桥接、ToolNode 事件 |
 | `app/business`  | 业务层：任务创建、查询、取消、队列分发 |
 | `app/common`    | 异步 Redis 客户端、asyncio 工具、日志、ID 生成 |
 | `app/models`    | 任务 / 事件 / Agent 状态的数据结构 |
 | `app/db`        | 异步数据库连接、Task/Event Repository |
 | `config`        | YAML + 环境变量配置 |
-| `tests`         | 单元测试（SSE 断点续传、事件聚合） |
+| `tests`         | 单元测试（SSE 断点续传、事件聚合、MCP 适配） |
 
 ---
 
@@ -269,6 +270,69 @@ Agent state 每步持久化到 Redis `mj:agent_state:<id>`，Worker 崩溃后可
 
 ---
 
-## 8. License
+## 8. MCP 工具接入
+
+Worker 通过 [Model Context Protocol](https://modelcontextprotocol.io/) 接入任意外部工具服务，
+通过 `app/worker/mcp/` 子模块完成"连接 → 发现 → 桥接 → 调用"全流程。
+
+### 8.1 配置示例（`config/config.yaml`）
+
+```yaml
+mcp:
+  enabled: true
+  emit_tool_events: true          # 把 tool_call / tool_result 写回 SSE 流
+  allowlist: []                   # 留空 = 全部
+  denylist: []
+  servers:
+    # 本地 stdio 启动官方 filesystem server
+    - name: filesystem
+      transport: stdio
+      enabled: true
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "./workspace"]
+      env: {}
+
+    # 远端 SSE MCP server
+    - name: remote-search
+      transport: sse
+      enabled: true
+      url: https://mcp.example.com/sse
+      headers:
+        Authorization: "Bearer xxx"
+
+    # 远端 streamable_http MCP server
+    - name: remote-tools
+      transport: streamable_http
+      enabled: false
+      url: https://mcp.example.com/mcp
+```
+
+### 8.2 工具调用流程
+
+1. Worker 启动时按 `servers` 列表初始化多个 `ClientSession`（[client.py](file:///d:/MJ-Agent/mj-agent/app/worker/mcp/client.py)）
+2. 调用 `session.list_tools()`，把工具注册到 `ToolRegistry`（[registry.py](file:///d:/MJ-Agent/mj-agent/app/worker/mcp/registry.py)）
+3. 通过 `mcp_to_langchain_tools()` 把 MCP 工具桥接为 `StructuredTool`（[adapter.py](file:///d:/MJ-Agent/mj-agent/app/worker/mcp/adapter.py)）
+4. LangGraph 用 `llm.bind_tools(tools)` + `ToolNode` 实现自动 tool_call 循环
+5. 每次工具调用前后下发 `TOOL_CALL` / `TOOL_RESULT` 事件（[tool_node.py](file:///d:/MJ-Agent/mj-agent/app/worker/mcp/tool_node.py)）
+
+### 8.3 工具命名空间
+
+为避免多 server 撞名，所有工具以 `<server_name>:<tool_name>` 形式暴露给 LLM，例如：
+- `filesystem:read_file`
+- `filesystem:write_file`
+- `remote-search:web_search`
+
+可在 `allowlist` / `denylist` 中按限定名裁剪可用工具。
+
+### 8.4 不依赖 mcp SDK 的回退
+
+如果 `mcp` / `langchain-mcp-adapters` 未安装或官方 adapter 不可用，
+[mcp_to_langchain_tools](file:///d:/MJ-Agent/mj-agent/app/worker/mcp/adapter.py#L122-L168) 会回退到本地手写包装：
+按 registry 注册的 schema 构造 `StructuredTool`，调用 `mgr.call_tool()` 直接走 `ClientSession.call_tool`。
+这意味着即使在简化环境（无 mcp）下，桥接层仍能工作（前提是手动 mock ClientSession）。
+
+---
+
+## 9. License
 
 MIT

@@ -12,6 +12,12 @@ PyYAML==6.0.2
 # Agent / LangGraph
 langgraph==0.2.34
 langchain-core==0.3.7
+langchain-openai==0.2.2
+langchain-anthropic==0.2.2
+
+# MCP (Model Context Protocol) - 接入外部 tools
+mcp>=1.0.0
+langchain-mcp-adapters>=0.1.0
 
 # 测试
 pytest==8.3.3

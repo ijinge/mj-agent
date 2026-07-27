@@ -15,13 +15,13 @@ from app.business.task_service import TaskService
 from app.common.async_utils import cancelable_sleep
 from app.common.logger import get_logger
 from app.common.redis_client import RedisManager, close_redis, get_redis, init_redis
-from app.config.settings import Settings, get_settings
 from app.db.database import Database, close_database, get_database, init_database
 from app.gateway.connection import ConnectionManager
 from app.gateway.sse import sse_done, sse_format, sse_keepalive
 from app.gateway.subscription import RedisStreamSubscriber
 from app.models.event import Event, EventType
 from app.models.task import TaskStatus
+from config.settings import Settings, get_settings
 
 _log = get_logger(__name__)
 

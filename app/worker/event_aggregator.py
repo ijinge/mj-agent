@@ -78,14 +78,22 @@ class EventAggregator:
         except asyncio.CancelledError:
             raise
 
-    async def flush_all(self) -> None:
+    async def flush_all(self, force: bool = False) -> None:
+        """刷新所有缓冲。
+
+        - force=True:  强制刷新所有非空缓冲（无论是否到达时间窗口）
+        - force=False: 仅刷新到达时间窗口的缓冲
+        """
         async with self._lock:
-            now = time.monotonic()
-            to_flush = [
-                tid
-                for tid, ts in self._last_flush_at.items()
-                if self._buffers.get(tid) and now - ts >= self._flush_interval
-            ]
+            if force:
+                to_flush = [tid for tid, buf in self._buffers.items() if buf]
+            else:
+                now = time.monotonic()
+                to_flush = [
+                    tid
+                    for tid, ts in self._last_flush_at.items()
+                    if self._buffers.get(tid) and now - ts >= self._flush_interval
+                ]
             for tid in to_flush:
                 await self._flush_locked(tid)
 

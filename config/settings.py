@@ -55,6 +55,50 @@ class LLMConfig(BaseModel):
     max_tokens: int | None = None
 
 
+class MCPServerConfig(BaseModel):
+    """单个 MCP server 配置。
+
+    三种 transport 互斥：
+    - stdio:            启动子进程（最常见：mcp-server-xxx）
+    - sse:              远端 SSE MCP server
+    - streamable_http:  远端 HTTP MCP server（新版）
+    """
+
+    name: str
+    transport: str = "stdio"            # stdio | sse | streamable_http
+    enabled: bool = True
+
+    # stdio
+    command: str | None = None
+    args: list[str] = []
+    env: dict[str, str] = {}
+    cwd: str | None = None
+
+    # sse / streamable_http
+    url: str | None = None
+    headers: dict[str, str] = {}
+
+    # 通用
+    connect_timeout_seconds: float = 10.0
+    request_timeout_seconds: float = 60.0
+    tool_call_timeout_seconds: float = 120.0
+
+    def transport_kind(self) -> str:
+        return self.transport.lower().strip()
+
+
+class MCPConfig(BaseModel):
+    """MCP 总配置。"""
+
+    enabled: bool = True
+    servers: list[MCPServerConfig] = []
+    # 工具白/黑名单（按 server:name 限定），不填表示全量
+    allowlist: list[str] = []
+    denylist: list[str] = []
+    # 工具调用时是否把 call / result 写回事件流
+    emit_tool_events: bool = True
+
+
 class Settings(BaseModel):
     app_name: str = "mj-agent"
     env: str = "dev"
@@ -63,6 +107,7 @@ class Settings(BaseModel):
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     worker: WorkerConfig = Field(default_factory=WorkerConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    mcp: MCPConfig = Field(default_factory=MCPConfig)
 
 
 def _load_yaml() -> dict[str, Any]:

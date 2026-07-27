@@ -20,7 +20,8 @@ class AgentState(TypedDict, total=False):
 
     - messages:       消息历史（add_messages reducer 自动合并）
     - scratchpad:     Agent 内部草稿（推理、计划、变量）
-    - tool_results:   工具调用结果
+    - tool_results:   工具调用结果（已合并的工具返回值）
+    - tool_calls:     待执行的工具调用（来自 LLM 的 tool_calls）
     - metadata:       业务元数据透传
     - task_id:        任务 ID（用于事件归属）
     - iter:           循环迭代计数
@@ -29,6 +30,7 @@ class AgentState(TypedDict, total=False):
     messages: Annotated[list[AgentMessage], add_messages]
     scratchpad: dict[str, Any]
     tool_results: list[dict[str, Any]]
+    tool_calls: list[dict[str, Any]]
     metadata: dict[str, Any]
     task_id: str
     iter: int

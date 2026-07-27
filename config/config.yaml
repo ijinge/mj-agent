@@ -34,3 +34,30 @@ llm:
   base_url: null
   temperature: 0.2
   max_tokens: null
+
+# MCP（Model Context Protocol）外部工具配置
+mcp:
+  enabled: true
+  emit_tool_events: true
+  allowlist: []    # 留空 = 全部
+  denylist: []
+  servers:
+    # 示例：本地 stdio 启动 @modelcontextprotocol/server-filesystem
+    - name: filesystem
+      transport: stdio
+      enabled: false           # 默认关闭，按需开启
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "./workspace"]
+      env: {}
+      cwd: null
+      connect_timeout_seconds: 10.0
+      request_timeout_seconds: 60.0
+      tool_call_timeout_seconds: 120.0
+
+    # 示例：远端 SSE MCP server
+    # - name: remote-search
+    #   transport: sse
+    #   enabled: true
+    #   url: https://mcp.example.com/sse
+    #   headers:
+    #     Authorization: "Bearer xxx"

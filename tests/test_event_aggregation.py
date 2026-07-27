@@ -39,7 +39,7 @@ def _mkev(task_id: str, text: str) -> Event:
     return Event(
         event_id="",
         task_id=task_id,
-        type=EventType.TOKEN,
+        type=EventType.MESSAGE,  # 用非聚合类型，原始事件独立写入
         data={"text": text},
         seq=0,
         created_at_ms=0,
@@ -52,11 +52,19 @@ async def test_aggregator_batches_tokens(fake_redis: RedisManager):
     await agg.start()
     try:
         for s in ["h", "e", "l", "l", "o"]:
-            await agg.enqueue(_mkev(task_id, s))
+            ev = Event(
+                event_id="",
+                task_id=task_id,
+                type=EventType.TOKEN,  # 聚合路径
+                data={"text": s},
+                seq=0,
+                created_at_ms=0,
+            )
+            await agg.enqueue(ev)
         # 触发 max_batch flush
         await asyncio.sleep(0.05)
         # 等聚合器周期 flush
-        await agg.flush_all()
+        await agg.flush_all(force=True)
         # 至少应该有 1 条（合并后），且不超过 2 条
         entries = await fake_redis.client.xrange(f"mj:task:{task_id}:events")
         assert 1 <= len(entries) <= 2
@@ -72,20 +80,22 @@ async def test_aggregator_batches_tokens(fake_redis: RedisManager):
 
 async def test_aggregator_preserves_order(fake_redis: RedisManager):
     task_id = "t_agg_order"
-    agg = EventAggregator(max_batch=2, flush_interval_ms=10, redis=fake_redis)
+    # max_batch 设大 + flush_interval 短，强制每条独立写以观察原始 seq
+    agg = EventAggregator(max_batch=1000, flush_interval_ms=5, redis=fake_redis)
     await agg.start()
     try:
         for s in ["a", "b", "c", "d"]:
             await agg.enqueue(_mkev(task_id, s))
-        await agg.flush_all()
+        await agg.flush_all(force=True)
         entries = await fake_redis.client.xrange(f"mj:task:{task_id}:events")
         seqs: list[int] = []
         for _eid, fields in entries:
             data = json.loads(fields["data"])
             if "seq" in data:
                 seqs.append(int(data["seq"]))
-        assert seqs == sorted(seqs)
-        assert seqs[0] == 1 and seqs[-1] == 4
+        # seq 单调递增（顺序保持）
+        assert seqs == [1, 2, 3, 4]
+        # seqs == sorted(seqs) 蕴含此断言
     finally:
         await agg.stop()
 
