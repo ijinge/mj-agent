@@ -162,4 +162,11 @@ def build_app() -> FastAPI:
     return app
 
 
-app = build_app()
+# 不在模块级调用 build_app()，避免 import 时触发 Redis / DB 单例校验。
+# 使用方式：
+#   uvicorn app.gateway.router:build_app --factory
+# 或在外部：from app.gateway.router import build_app; app = build_app()
+def __getattr__(name: str):
+    if name == "app":
+        return build_app()
+    raise AttributeError(name)

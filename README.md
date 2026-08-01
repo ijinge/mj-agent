@@ -76,21 +76,62 @@
 - Python ≥ 3.11
 - Redis ≥ 6.2（需要 Stream 特性）
 - PostgreSQL ≥ 14（或将 `database.url` 改为你偏好的异步 SQL 方言）
+- 可选：`make`（Windows 可用 Git Bash / WSL，或直接用 `scripts/` 下的脚本）
 
-### 3.2 安装
+### 3.2 一键环境搭建（推荐）
+
+**Linux / macOS：**
 
 ```bash
-python -m venv .venv
-. .venv/Scripts/activate    # Windows
-# source .venv/bin/activate  # macOS / Linux
-
-pip install -r requirements.txt
+./scripts/setup.sh            # 创建 .venv + 装 dev 依赖 + 跑测试
+./scripts/setup.sh --base     # 仅装生产依赖（无测试/lint）
+./scripts/setup.sh --recreate # 删除 .venv 后重建
 ```
 
-### 3.3 配置
+**Windows PowerShell：**
+
+```powershell
+.\scripts\setup.ps1            # 创建 .venv + 装 dev 依赖 + 跑测试
+.\scripts\setup.ps1 -Base      # 仅装生产依赖
+.\scripts\setup.ps1 -Recreate  # 删除 .venv 后重建
+```
+
+**或者用 Makefile（需 `make`）：**
+
+```bash
+make venv         # 创建 .venv
+make install      # 装 dev 依赖
+make test         # 跑测试
+make run-gateway  # 启动 FastAPI
+make run-worker   # 启动 Worker
+make help         # 查看全部命令
+```
+
+### 3.3 手动安装
+
+```bash
+# Linux / macOS
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+
+# Windows PowerShell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+```
+
+### 3.4 验证安装
+
+```bash
+python -c "import fastapi, langgraph, mcp; print('all ok')"
+pytest -q
+```
+
+### 3.5 配置
 
 默认配置在 [`config/config.yaml`](file:///d:/MJ-Agent/mj-agent/config/config.yaml)；
-可以通过环境变量覆盖：
+可以复制 [`.env.example`](file:///d:/MJ-Agent/mj-agent/.env.example) 为 `.env` 后通过环境变量覆盖。
 
 | 变量 | 作用 |
 | --- | --- |
@@ -105,26 +146,34 @@ pip install -r requirements.txt
 | `MJ_LLM_BASE_URL`     | LLM 网关地址 |
 | `MJ_LOG_LEVEL`        | 日志级别（DEBUG/INFO/WARNING） |
 
-### 3.4 启动 Redis & PostgreSQL（Docker）
+### 3.6 启动 Redis & PostgreSQL（Docker）
 
 ```bash
 docker run -d --name mj-redis -p 6379:6379 redis:7-alpine
 docker run -d --name mj-pg    -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16-alpine
 ```
 
-### 3.5 启动 Worker
+### 3.7 启动 Worker
 
 ```bash
+# 方式 1：直接 python（venv 内）
 python -m app.worker.runner
+
+# 方式 2：Makefile
+make run-worker
 ```
 
-### 3.6 启动 Gateway
+### 3.8 启动 Gateway
 
 ```bash
-uvicorn app.gateway.router:app --host 0.0.0.0 --port 8080
+# 方式 1：uvicorn + --factory（推荐，build_app 内部自动初始化 Redis/DB）
+uvicorn app.gateway.router:build_app --factory --host 0.0.0.0 --port 8080
+
+# 方式 2：Makefile
+make run-gateway
 ```
 
-### 3.7 启动前端
+### 3.9 启动前端
 
 ```bash
 # 推荐 Next.js（独立仓库，参见 docs/frontend.md）
