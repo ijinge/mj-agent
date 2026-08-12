@@ -3,13 +3,15 @@ app_name: mj-agent
 env: dev
 
 redis:
-  url: redis://127.0.0.1:6379/0
+  url: redis://10.0.12.31:6379
   max_connections: 32
   stream_block_ms: 5000
   stream_read_count: 100
 
 database:
-  url: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/mjagent
+  url: postgresql+asyncpg://postgres:postgres@10.0.12.31:5432/mjagent
+  user: postgres
+  password: postgres
   pool_size: 10
   echo: false
 
@@ -19,6 +21,14 @@ gateway:
   sse_keepalive_seconds: 15.0
   sse_max_idle_seconds: 90.0
   sse_default_retry_ms: 3000
+  # CORS：允许的前端来源（覆盖默认；用 env MJ_GATEWAY_CORS_ALLOW_ORIGINS 更安全）
+  # 开发环境默认放 Next.js 3000；生产请改成实际前端域名
+  cors_allow_origins:
+    - http://localhost:3000
+    - http://127.0.0.1:3000
+  cors_allow_methods: ["*"]
+  cors_allow_headers: ["*"]
+  cors_allow_credentials: true
 
 worker:
   queue: tasks:default
@@ -28,36 +38,42 @@ worker:
   default_max_iters: 10
 
 llm:
-  provider: openai
-  model: gpt-4o-mini
-  api_key: null
-  base_url: null
+  provider: openai                         
+  model: qwen-plus
+  # model: qwen3-14b
+  # api_key: 填入自己的APIKey
+  # base_url: 填入自己对应厂商的BaseURL
   temperature: 0.2
   max_tokens: null
 
-# MCP（Model Context Protocol）外部工具配置
 mcp:
   enabled: true
   emit_tool_events: true
-  allowlist: []    # 留空 = 全部
+  allowlist: []
   denylist: []
+  # servers:
   servers:
-    # 示例：本地 stdio 启动 @modelcontextprotocol/server-filesystem
-    - name: filesystem
-      transport: stdio
-      enabled: false           # 默认关闭，按需开启
-      command: npx
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "./workspace"]
-      env: {}
-      cwd: null
+    - name: wzmj-server
+      transport: streamable_http
+      enabled: true
+      url: http://10.0.104.54:8002/mcp
+      headers: {}
+      connect_timeout_seconds: 10.0
+      request_timeout_seconds: 60.0
+      tool_call_timeout_seconds: 120.0 
+    - name: nanchang_mcp
+      transport: streamable_http
+      enabled: true
+      url: http://10.0.104.71:8765/mcp
+      headers: {}
       connect_timeout_seconds: 10.0
       request_timeout_seconds: 60.0
       tool_call_timeout_seconds: 120.0
-
-    # 示例：远端 SSE MCP server
-    # - name: remote-search
-    #   transport: sse
-    #   enabled: true
-    #   url: https://mcp.example.com/sse
-    #   headers:
-    #     Authorization: "Bearer xxx"
+    - name: ncmj-server
+      transport: streamable_http
+      enabled: true
+      url: http://10.0.104.126:8000/mcp
+      headers: {}
+      connect_timeout_seconds: 10.0
+      request_timeout_seconds: 60.0
+      tool_call_timeout_seconds: 120.0

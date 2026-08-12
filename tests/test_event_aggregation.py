@@ -1,9 +1,10 @@
 """事件聚合测试。"""
+
 from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -16,10 +17,7 @@ from app.common.redis_client import RedisManager
 from app.models.event import Event, EventType
 from app.worker.event_aggregator import EventAggregator
 
-
-pytestmark = pytest.mark.skipif(
-    fakeredis_aio is None, reason="fakeredis is required for this test"
-)
+pytestmark = pytest.mark.skipif(fakeredis_aio is None, reason="fakeredis is required for this test")
 
 
 @pytest.fixture
@@ -118,5 +116,39 @@ async def test_non_aggregable_event_flushes_immediately(fake_redis: RedisManager
         assert len(entries) == 1
         data = json.loads(entries[0][1]["data"])
         assert data["type"] == EventType.MESSAGE.value
+    finally:
+        await agg.stop()
+
+
+async def test_finished_does_not_overtake_buffered_token(fake_redis: RedisManager):
+    """终态必须排在已缓冲正文之后，否则 SSE 会过早关闭。"""
+    task_id = "t_agg_terminal_order"
+    agg = EventAggregator(max_batch=100, flush_interval_ms=10_000, redis=fake_redis)
+    try:
+        token = Event(
+            event_id="",
+            task_id=task_id,
+            type=EventType.TOKEN,
+            data={"text": "最终回答"},
+            seq=0,
+            created_at_ms=0,
+        )
+        finished = Event(
+            event_id="",
+            task_id=task_id,
+            type=EventType.FINISHED,
+            data={"ok": True},
+            seq=0,
+            created_at_ms=0,
+        )
+
+        await agg.enqueue(token)
+        await agg.enqueue(finished)
+
+        entries = await fake_redis.client.xrange(f"mj:task:{task_id}:events")
+        event_types = [json.loads(fields["data"])["type"] for _, fields in entries]
+        assert event_types == [EventType.TOKEN.value, EventType.FINISHED.value]
+        first = json.loads(entries[0][1]["data"])
+        assert first["data"]["text"] == "最终回答"
     finally:
         await agg.stop()

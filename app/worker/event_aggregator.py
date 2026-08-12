@@ -1,11 +1,10 @@
 """事件聚合器：把高频小事件（如 token）批量写入 Redis Stream，兼顾时延与吞吐。"""
+
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from collections import deque
-from typing import Any, Awaitable, Callable, Deque, Optional
 
 from app.common.logger import get_logger
 from app.common.redis_client import RedisManager, get_redis
@@ -35,10 +34,10 @@ class EventAggregator:
         self._max_batch = max_batch
         self._flush_interval = flush_interval_ms / 1000.0
         self._redis = redis or get_redis()
-        self._buffers: dict[str, Deque[Event]] = {}
+        self._buffers: dict[str, deque[Event]] = {}
         self._last_flush_at: dict[str, float] = {}
         self._lock = asyncio.Lock()
-        self._flush_task: Optional[asyncio.Task[None]] = None
+        self._flush_task: asyncio.Task[None] | None = None
         self._stop_evt = asyncio.Event()
 
     async def start(self) -> None:
@@ -57,8 +56,11 @@ class EventAggregator:
 
     async def enqueue(self, event: Event) -> None:
         if event.type not in AGGREGATABLE:
-            # 不可聚合事件：直接写入
-            await self._redis.xadd_event(event.task_id, event.model_dump())
+            # 终态、工具调用等事件不能越过已经入队的 token，否则 SSE 网关
+            # 会先看到 finished 并关闭连接，导致最后一批正文永远到不了前端。
+            async with self._lock:
+                await self._flush_locked(event.task_id)
+                await self._redis.xadd_event(event.task_id, event.model_dump())
             return
         async with self._lock:
             buf = self._buffers.setdefault(event.task_id, deque())
@@ -72,7 +74,7 @@ class EventAggregator:
             while not self._stop_evt.is_set():
                 try:
                     await asyncio.wait_for(self._stop_evt.wait(), timeout=self._flush_interval)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 await self.flush_all()
         except asyncio.CancelledError:
@@ -114,7 +116,10 @@ class EventAggregator:
                 event_id=first.event_id,
                 task_id=task_id,
                 type=EventType.TOKEN,
-                data={"text": "".join(e.data.get("text", "") for e in events), "count": len(events)},
+                data={
+                    "text": "".join(e.data.get("text", "") for e in events),
+                    "count": len(events),
+                },
                 seq=first.seq,
                 created_at_ms=first.created_at_ms,
             )

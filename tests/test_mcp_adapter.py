@@ -1,14 +1,13 @@
 """MCP adapter 桥接测试（不依赖真实 MCP server，使用 fake manager）。"""
+
 from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock
 
 from langchain_core.tools import BaseTool
 
 from app.worker.mcp.adapter import mcp_to_langchain_tools
-from app.worker.mcp.client import MCPClientManager
 from app.worker.mcp.registry import ToolRegistry
 from config.settings import MCPConfig
 
@@ -36,8 +35,32 @@ def test_mcp_to_langchain_tools_fallback_wraps_each_tool():
     reg.register_many(
         "fs",
         [
-            type("T", (), {"name": "read", "description": "read file", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}),
-            type("T", (), {"name": "write", "description": "write file", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}),
+            type(
+                "T",
+                (),
+                {
+                    "name": "read",
+                    "description": "read file",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {"path": {"type": "string"}},
+                        "required": ["path"],
+                    },
+                },
+            ),
+            type(
+                "T",
+                (),
+                {
+                    "name": "write",
+                    "description": "write file",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+                        "required": ["path", "content"],
+                    },
+                },
+            ),
         ],
     )
 
@@ -59,6 +82,47 @@ def test_mcp_to_langchain_tools_empty_registry_returns_empty():
     assert tools == []
 
 
+def test_mcp_to_langchain_tools_only_exposes_matching_server():
+    fake = _FakeMCPManager()
+    reg = ToolRegistry(MCPConfig(emit_tool_events=False))
+    reg.register_many(
+        "ncmj-server",
+        [
+            type(
+                "T",
+                (),
+                {
+                    "name": "nanchang",
+                    "description": "",
+                    "inputSchema": {"type": "object", "properties": {}},
+                },
+            )
+        ],
+    )
+    reg.register_many(
+        "srmj-server",
+        [
+            type(
+                "T",
+                (),
+                {
+                    "name": "shangrao",
+                    "description": "",
+                    "inputSchema": {"type": "object", "properties": {}},
+                },
+            )
+        ],
+    )
+
+    tools = mcp_to_langchain_tools(
+        fake,  # type: ignore[arg-type]
+        reg,
+        server_name="ncmj-server",
+    )
+
+    assert [tool.name for tool in tools] == ["ncmj-server:nanchang"]
+
+
 def test_fallback_tool_invoke_calls_manager():
     async def _run():
         fake = _FakeMCPManager()
@@ -66,7 +130,19 @@ def test_fallback_tool_invoke_calls_manager():
         reg.register_many(
             "fs",
             [
-                type("T", (), {"name": "read", "description": "read file", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}),
+                type(
+                    "T",
+                    (),
+                    {
+                        "name": "read",
+                        "description": "read file",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"path": {"type": "string"}},
+                            "required": ["path"],
+                        },
+                    },
+                ),
             ],
         )
         tools = mcp_to_langchain_tools(fake, reg)  # type: ignore[arg-type]

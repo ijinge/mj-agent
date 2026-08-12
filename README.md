@@ -43,6 +43,8 @@
                                           └─────────────────────────┘
 ```
 
+![alt text](8f131def8c02ac829ab30f137346f6eb-1.png)
+
 ### 模块职责
 
 | 模块 | 职责 |
@@ -76,7 +78,7 @@
 - Python ≥ 3.11
 - Redis ≥ 6.2（需要 Stream 特性）
 - PostgreSQL ≥ 14（或将 `database.url` 改为你偏好的异步 SQL 方言）
-- 可选：`make`（Windows 可用 Git Bash / WSL，或直接用 `scripts/` 下的脚本）
+- 可选：Docker / Docker Compose（用于跑 redis + postgres）
 
 ### 3.2 一键环境搭建（推荐）
 
@@ -94,17 +96,6 @@
 .\scripts\setup.ps1            # 创建 .venv + 装 dev 依赖 + 跑测试
 .\scripts\setup.ps1 -Base      # 仅装生产依赖
 .\scripts\setup.ps1 -Recreate  # 删除 .venv 后重建
-```
-
-**或者用 Makefile（需 `make`）：**
-
-```bash
-make venv         # 创建 .venv
-make install      # 装 dev 依赖
-make test         # 跑测试
-make run-gateway  # 启动 FastAPI
-make run-worker   # 启动 Worker
-make help         # 查看全部命令
 ```
 
 ### 3.3 手动安装
@@ -146,21 +137,94 @@ pytest -q
 | `MJ_LLM_BASE_URL`     | LLM 网关地址 |
 | `MJ_LOG_LEVEL`        | 日志级别（DEBUG/INFO/WARNING） |
 
-### 3.6 启动 Redis & PostgreSQL（Docker）
+### 3.6 启动 Redis & PostgreSQL（Docker / 远端服务器）
+
+**典型部署**：redis + postgres 跑在远端服务器，本机跑 gateway / worker / 前端。
+把 [`docker-compose.yml`](file:///d:/MJ-Agent/mj-agent/docker-compose.yml) 拷贝到服务器上（只部署这两个服务，不需要 Dockerfile），然后：
+
+#### 在服务器上
+
+```bash
+# 1) 上传 docker-compose.yml 后：
+docker compose up -d
+
+# 2) 确认服务正常
+docker compose ps
+docker compose logs -f
+
+# 3) 防火墙放行 6379 / 5432（示例：ufw）
+sudo ufw allow from <本机IP> to any port 6379 proto tcp
+sudo ufw allow from <本机IP> to any port 5432 proto tcp
+sudo ufw reload
+```
+
+启动后服务器暴露的端口：
+
+- **Redis**    -> `<server-ip>:6379`
+- **Postgres** -> `<server-ip>:5432`，`user=postgres` / `pass=postgres` / `db=mjagent`
+
+#### 在本机
+
+复制 [`.env.example`](file:///d:/MJ-Agent/mj-agent/.env.example) 为 `.env`，把 `<server-ip>` 替换为服务器实际 IP：
+
+```bash
+cp .env.example .env
+# 把下面两行的 127.0.0.1 改成 <server-ip>：
+MJ_REDIS_URL=redis://<server-ip>:6379/0
+MJ_DB_URL=postgresql+asyncpg://postgres:postgres@<server-ip>:5432/mjagent
+```
+
+或者直接改 [`config/config.yaml`](file:///d:/MJ-Agent/mj-agent/config/config.yaml) 的 `redis.url` / `database.url` 字段（env 变量优先）。
+
+然后本机照常启动：
+
+```bash
+# Gateway（监听 0.0.0.0:8080）
+.venv/bin/uvicorn app.gateway.router:build_app --factory --host 0.0.0.0 --port 8080
+# 或 Windows：.venv\Scripts\uvicorn app.gateway.router:build_app --factory --host 0.0.0.0 --port 8080
+
+# Worker（另开一个终端）
+.venv/bin/python -m app.worker.runner
+# 或 Windows：.venv\Scripts\python -m app.worker.runner
+
+# 本机自检
+curl http://127.0.0.1:8080/healthz
+```
+
+#### 常用 Docker 命令
+
+```bash
+docker compose up -d        # 启动
+docker compose down         # 停止
+docker compose down -v      # 停止并清空数据
+docker compose logs -f      # 跟踪日志
+docker compose ps           # 查看状态
+```
+
+> **安全提示**：远端部署时 `postgres` 默认密码是 `postgres`，redis 无鉴权。
+> 生产环境请务必：
+> 1. 修改 `docker-compose.yml` 里 `POSTGRES_PASSWORD` 为强密码，并同步修改 `MJ_DB_URL`；
+> 2. 给 redis 加 `requirepass`（在 `command` 里加 `--requirepass yourpass`，并把 `MJ_REDIS_URL` 改成 `redis://:yourpass@<server-ip>:6379/0`）；
+> 3. 用防火墙（ufw / iptables / 安全组）限制 6379 / 5432 仅允许本机 IP 访问。
+> 上面 compose 里的防火墙示例就是只放行你本机 IP 的最小权限方案。
+
+#### 不想用 compose？直接 docker run 也行
 
 ```bash
 docker run -d --name mj-redis -p 6379:6379 redis:7-alpine
 docker run -d --name mj-pg    -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16-alpine
 ```
 
+#### 全跑在本机？
+
+把 compose 里 `ports` 改回 `127.0.0.1:6379:6379` / `127.0.0.1:5432:5432`，
+然后 `.env` 保持默认的 `127.0.0.1` 即可，本机直接 `uvicorn ...` / `python -m app.worker.runner` 就能连上。
+
 ### 3.7 启动 Worker
 
 ```bash
-# 方式 1：直接 python（venv 内）
+# 在 .venv 下直接 python
 python -m app.worker.runner
-
-# 方式 2：Makefile
-make run-worker
 ```
 
 ### 3.8 启动 Gateway
@@ -168,9 +232,6 @@ make run-worker
 ```bash
 # 方式 1：uvicorn + --factory（推荐，build_app 内部自动初始化 Redis/DB）
 uvicorn app.gateway.router:build_app --factory --host 0.0.0.0 --port 8080
-
-# 方式 2：Makefile
-make run-gateway
 ```
 
 ### 3.9 启动前端

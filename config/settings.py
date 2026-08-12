@@ -34,6 +34,17 @@ class GatewayConfig(BaseModel):
     sse_keepalive_seconds: float = 15.0
     sse_max_idle_seconds: float = 90.0
     sse_default_retry_ms: int = 3000
+    # CORS：允许的前端来源列表
+    # - 开发默认放 Next.js 常见端口（localhost / 127.0.0.1 :3000）
+    # - 生产建议收紧到实际前端域名（用环境变量 MJ_GATEWAY_CORS_ALLOW_ORIGINS 覆盖）
+    # - 设为 ["*"] 时同时必须 allow_credentials=False，否则浏览器会拒绝
+    cors_allow_origins: list[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    cors_allow_methods: list[str] = ["*"]
+    cors_allow_headers: list[str] = ["*"]
+    cors_allow_credentials: bool = True
 
 
 class WorkerConfig(BaseModel):
@@ -127,6 +138,7 @@ def _apply_env_overrides(settings: Settings) -> Settings:
         "MJ_DB_URL": ("database", "url"),
         "MJ_GATEWAY_HOST": ("gateway", "host"),
         "MJ_GATEWAY_PORT": ("gateway", "port"),
+        "MJ_GATEWAY_CORS_ALLOW_ORIGINS": ("gateway", "cors_allow_origins"),
         "MJ_WORKER_CONCURRENCY": ("worker", "concurrency"),
         "MJ_LLM_PROVIDER": ("llm", "provider"),
         "MJ_LLM_MODEL": ("llm", "model"),
@@ -150,6 +162,9 @@ def _apply_env_overrides(settings: Settings) -> Settings:
             cast = int(v)
         elif isinstance(cur, float):
             cast = float(v)
+        elif isinstance(cur, list):
+            # 逗号分隔：MJ_GATEWAY_CORS_ALLOW_ORIGINS="https://a.com,https://b.com"
+            cast = [s.strip() for s in v.split(",") if s.strip()]
         else:
             cast = v
         setattr(target, attr, cast)

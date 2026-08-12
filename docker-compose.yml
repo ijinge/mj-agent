@@ -1,0 +1,53 @@
+# mj-agent · 仅启动依赖服务 (redis + postgres)
+#
+# 适用场景：在远端服务器上跑 redis + postgres，本机跑 gateway / worker / 前端。
+#
+# 用法：
+#   docker compose up -d          # 后台启动
+#   docker compose down           # 停止并移除容器
+#   docker compose down -v        # 同时删除数据卷
+#   docker compose logs -f redis  # 跟踪日志
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: mj-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    # 启动加载持久化策略；用 appendonly 保证 Stream 写入不丢
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: mj-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mjagent
+      # 时区与本机一致（避免 created_at 偏移）
+      TZ: Asia/Shanghai
+    # 监听服务器所有网卡；如要本机独占，加 127.0.0.1 前缀
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mjagent"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  redis_data:
+    name: mj_redis_data
+  pg_data:
+    name: mj_pg_data

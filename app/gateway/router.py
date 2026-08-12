@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import APIRouter, FastAPI, Header, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from app.business.dispatcher import TaskDispatcher
@@ -34,16 +35,24 @@ async def lifespan(app: FastAPI):
     await init_database(
         settings.database.url, pool_size=settings.database.pool_size, echo=settings.database.echo
     )
-    yield
-    await close_database()
-    await close_redis()
+    # 幂等建表（CREATE TABLE IF NOT EXISTS）：连到空库/首次启动时自动创建 tasks 等表
+    await get_database().create_all()
+    # 在 lifespan 里（init_redis 之后）再创建依赖 redis 的对象
+    app.state.subscriber = RedisStreamSubscriber()
+    try:
+        yield
+    finally:
+        app.state.subscriber = None
+        await close_database()
+        await close_redis()
 
 
 def build_router() -> APIRouter:
     router = APIRouter()
     settings = get_settings()
+    # ConnectionManager 不依赖 redis，可以在 include_router 阶段就构造
     conn_mgr = ConnectionManager(max_idle_seconds=settings.gateway.sse_max_idle_seconds)
-    subscriber = RedisStreamSubscriber()
+    # subscriber 改成懒加载：从 app.state 取；首次访问时若还没初始化则报错
 
     @router.post("/tasks", response_model=TaskResponseDTO, status_code=201)
     async def create_task(dto: CreateTaskDTO) -> TaskResponseDTO:
@@ -79,6 +88,11 @@ def build_router() -> APIRouter:
         task = await svc.get(task_id)
         if not task:
             raise HTTPException(404, "task not found")
+
+        # 从 app.state 取 subscriber（lifespan 里已初始化）
+        subscriber: RedisStreamSubscriber | None = getattr(request.app.state, "subscriber", None)
+        if subscriber is None:
+            raise HTTPException(503, "subscriber not ready (redis not initialized)")
 
         rec = await conn_mgr.register(task_id)
         start_id = last_event_id or "0"
@@ -149,10 +163,25 @@ def build_router() -> APIRouter:
 
 
 def build_app() -> FastAPI:
-    """构造 FastAPI 应用（含 lifespan）。"""
+    """构造 FastAPI 应用（含 lifespan + CORS）。"""
     settings = get_settings()
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.settings = settings
+
+    # CORS：处理浏览器 preflight (OPTIONS) —— 否则跨域请求会 405
+    # 暴露 Last-Event-ID 让前端 EventSource 拿到断点续传 header
+    # 注意：当 allow_origins=["*"] 时 allow_credentials 必须为 False
+    cors_kwargs: dict = {
+        "allow_origins": settings.gateway.cors_allow_origins,
+        "allow_methods": settings.gateway.cors_allow_methods,
+        "allow_headers": settings.gateway.cors_allow_headers,
+        "allow_credentials": settings.gateway.cors_allow_credentials,
+        "expose_headers": ["Last-Event-ID", "Content-Type"],
+    }
+    if "*" in settings.gateway.cors_allow_origins:
+        cors_kwargs["allow_credentials"] = False
+    app.add_middleware(CORSMiddleware, **cors_kwargs)
+
     app.include_router(build_router(), prefix="/api/v1")
 
     @app.get("/healthz")

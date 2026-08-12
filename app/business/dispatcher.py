@@ -1,4 +1,5 @@
 """队列分发：将任务入队，供 worker 消费。"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -19,6 +20,7 @@ class TaskDispatcher:
         payload: dict[str, Any] = {
             "task_id": task.task_id,
             "user_id": task.user_id,
+            "game_id": task.metadata.get("game_id", ""),
             "prompt": task.prompt,
             "metadata": task.metadata,
         }

@@ -3,9 +3,10 @@
 优先使用官方 `langchain-mcp-adapters` 的 `load_mcp_tools`；
 不可用时回退到本地手写包装（直接用 ClientSession.call_tool）。
 """
+
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Any
 
 from langchain_core.tools import BaseTool
 
@@ -16,7 +17,7 @@ from app.worker.mcp.registry import ToolDescriptor
 _log = get_logger(__name__)
 
 
-def _try_load_mcp_tools(session: Any) -> Optional[list[BaseTool]]:
+def _try_load_mcp_tools(session: Any) -> list[BaseTool] | None:
     """尝试用 langchain-mcp-adapters 加载工具；失败返回 None。"""
     try:
         from langchain_mcp_adapters.tools import load_mcp_tools  # type: ignore
@@ -54,6 +55,7 @@ def _wrap_one(
 
     def _call(**kwargs: Any) -> Any:
         import asyncio
+
         clean = _filter_kwargs(kwargs, descriptor.input_schema)
         return asyncio.run(
             mgr.call_tool(
@@ -94,8 +96,10 @@ def _build_args_schema(input_schema: dict[str, Any]):
             fields[prop_name] = (typ, Field(default=default, description=desc))
 
         if not fields:
+
             class _Empty(BaseModel):
                 pass
+
             return _Empty
 
         return create_model(f"{descriptor_safe_name(input_schema)}Args", **fields)  # type: ignore[arg-type]
@@ -122,6 +126,8 @@ def _json_type_to_python(t: str) -> Any:
 def mcp_to_langchain_tools(
     mgr: MCPClientManager,
     registry,
+    *,
+    server_name: str | None = None,
 ) -> list[BaseTool]:
     """统一入口：把 MCP 工具桥接为 LangChain 工具列表。
 
@@ -129,7 +135,10 @@ def mcp_to_langchain_tools(
     - 否则按 registry 注册的描述手写包装（兼容 + 降级）
     """
     tools: list[BaseTool] = []
-    descriptors = registry.all() if hasattr(registry, "all") else []
+    if server_name is not None and hasattr(registry, "by_server"):
+        descriptors = registry.by_server(server_name)
+    else:
+        descriptors = registry.all() if hasattr(registry, "all") else []
     if not descriptors:
         return tools
 

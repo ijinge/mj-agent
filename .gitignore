@@ -11,7 +11,7 @@ env/
 *.egg-info/
 .installed.cfg
 *.egg
-
+*.yaml
 # ---- 测试 / 覆盖率 ----
 .pytest_cache/
 .coverage
@@ -54,3 +54,13 @@ dist/
 # ---- 缓存 ----
 .cache/
 .mj_cache/
+
+# ---- 前端 ----
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+frontend/.env.*.local
+frontend/tsconfig.tsbuildinfo
+
+# ---- Docker ----
+.docker/
